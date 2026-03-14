@@ -1,107 +1,175 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
-import DashboardLayout from "@/components/DashboardLayout";
-import EmptyState from "@/components/EmptyState";
-import TableSkeleton from "@/components/TableSkeleton";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { schoolApi, nv } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
-import { schoolNavItems } from "./navItems";
+import { useState, useEffect, useCallback } from 'react';
+import { api, unwrapString } from '@/lib/api';
+import DataTable, { Column } from '@/components/shared/DataTable';
+import PageHeader from '@/components/shared/PageHeader';
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
+import AnimatedPage from '@/components/shared/AnimatedPage';
+import ViewToggle from '@/components/shared/ViewToggle';
+import SearchFilter from '@/components/shared/SearchFilter';
+import EmptyState from '@/components/shared/EmptyState';
+import { GridCardSkeleton, TableSkeleton } from '@/components/shared/LoadingSkeleton';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Trash2, School, UserCog, BookOpen, ClipboardList } from 'lucide-react';
+import { toast } from 'sonner';
+import { motion } from 'framer-motion';
 
-const AssignmentsPage = () => {
-  const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ teacher_id: "", subject_id: "", section_id: "" });
-  const { toast } = useToast();
-  const qc = useQueryClient();
+export default function AssignmentsPage() {
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [search, setSearch] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState({ teacher_id: '', subject_id: '', section_id: '' });
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const { data: teachersData } = useQuery({ queryKey: ["teachers"], queryFn: schoolApi.teachers.list });
-  const { data: subjectsData } = useQuery({ queryKey: ["subjects"], queryFn: schoolApi.subjects.list });
-  const { data: sectionsData } = useQuery({ queryKey: ["sections"], queryFn: schoolApi.sections.list });
-  const { data, isLoading } = useQuery({ queryKey: ["assignments"], queryFn: schoolApi.assignments.list });
+  const [teachers, setTeachers] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [sections, setSections] = useState<any[]>([]);
 
-  const teachers = teachersData?.data?.data ?? teachersData?.data ?? [];
-  const subjects = subjectsData?.data?.data ?? subjectsData?.data ?? [];
-  const sections = sectionsData?.data?.data ?? sectionsData?.data ?? [];
-  const assignments = data?.data?.data ?? data?.data ?? [];
+  useEffect(() => {
+    api.getTeachers(1, 100).then(setTeachers).catch(() => {});
+    api.getSubjects(1, 100).then(setSubjects).catch(() => {});
+    api.getSections(1, 100).then(setSections).catch(() => {});
+  }, []);
 
-  const createMut = useMutation({ mutationFn: schoolApi.assignments.create, onSuccess: () => { qc.invalidateQueries({ queryKey: ["assignments"] }); setCreateOpen(false); toast({ title: "Assignment Created" }); }});
-  const deleteMut = useMutation({ mutationFn: schoolApi.assignments.delete, onSuccess: () => { qc.invalidateQueries({ queryKey: ["assignments"] }); toast({ title: "Assignment Removed" }); }});
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try { setData(await api.getAssignments() || []); } catch (e: any) { toast.error(e.message); }
+    setLoading(false);
+  }, []);
 
-  const getName = (list: any[], id: string, ...keys: string[]) => {
-    const item = list.find((i: any) => i.id === id);
-    if (!item) return id?.slice(0, 8) ?? "N/A";
-    return keys.map(k => nv(item[k])).filter(Boolean).join(" ");
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await api.createAssignment(form); toast.success('Assignment created'); setDialogOpen(false); fetchData(); }
+    catch (e: any) { toast.error(e.message); }
+    setSaving(false);
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteAssignment({ teacher_id: deleteTarget.teacher_id, subject_id: deleteTarget.subject_id, section_id: deleteTarget.section_id });
+      toast.success('Deleted'); setDeleteTarget(null); fetchData();
+    } catch (e: any) { toast.error(e.message); }
+    setDeleting(false);
+  };
+
+  const filtered = data.filter(item => {
+    if (!search) return true;
+    const text = `${unwrapString(item.first_name)} ${unwrapString(item.last_name)} ${item.subject_name} ${item.section_name}`.toLowerCase();
+    return text.includes(search.toLowerCase());
+  });
+
+  const columns: Column<any>[] = [
+    { key: 'first_name', label: 'Teacher', render: (item) => `${unwrapString(item.first_name)} ${unwrapString(item.last_name)}` },
+    { key: 'subject_name', label: 'Subject' },
+    { key: 'section_name', label: 'Section' },
+  ];
+
   return (
-    <DashboardLayout navItems={schoolNavItems} title="Teacher Assignments">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="font-display text-xl font-semibold">Assignments</h2>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2"><Plus className="w-4 h-4" /> Assign Teacher</Button>
-      </div>
+    <AnimatedPage>
+      <PageHeader title="Assignments" description="Assign teachers to subjects and sections" onAdd={() => { setForm({ teacher_id: '', subject_id: '', section_id: '' }); setDialogOpen(true); }} addLabel="Add Assignment">
+        <ViewToggle view={view} onChange={setView} />
+      </PageHeader>
+      <SearchFilter search={search} onSearchChange={setSearch} placeholder="Search assignments..." />
 
-      <div className="bg-card rounded-xl border border-border/50 overflow-hidden">
-        {isLoading ? <div className="p-6"><TableSkeleton /></div> : !Array.isArray(assignments) || assignments.length === 0 ? <EmptyState /> : (
-          <Table>
-            <TableHeader><TableRow>
-              <TableHead>Teacher</TableHead><TableHead>Subject</TableHead><TableHead>Section</TableHead><TableHead className="text-right">Actions</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {assignments.map((a: any, i: number) => (
-                <TableRow key={i}>
-                  <TableCell>{getName(teachers, a.teacher_id, "first_name", "last_name")}</TableCell>
-                  <TableCell>{getName(subjects, a.subject_id, "name")}</TableCell>
-                  <TableCell>{getName(sections, a.section_id, "name")}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => deleteMut.mutate({ teacher_id: a.teacher_id, subject_id: a.subject_id, section_id: a.section_id })} className="hover:text-destructive">
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+      {loading ? (
+        view === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">{[1,2,3].map(i => <GridCardSkeleton key={i} />)}</div>
+        ) : <TableSkeleton cols={3} />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={School} title="No assignments" description="Assign a teacher to a subject and section." />
+      ) : view === 'grid' ? (
+        <motion.div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+          initial="hidden" animate="show"
+          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+        >
+          {filtered.map((item, i) => (
+            <motion.div
+              key={item.id || i}
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4 }}
+              className="glass-card rounded-xl p-5"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-secondary/15 flex items-center justify-center">
+                  <UserCog className="w-6 h-6 text-secondary" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-semibold text-foreground">
+                    {unwrapString(item.first_name)} {unwrapString(item.last_name)}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">Teacher</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Badge variant="outline" className="gap-1"><ClipboardList className="w-3 h-3" /> {item.subject_name}</Badge>
+                <Badge variant="secondary" className="gap-1"><BookOpen className="w-3 h-3" /> {item.section_name}</Badge>
+              </div>
+              <div className="pt-3 border-t border-border/50">
+                <Button variant="ghost" size="sm" className="text-destructive gap-1.5" onClick={() => setDeleteTarget(item)}>
+                  <Trash2 className="w-3.5 h-3.5" /> Remove
+                </Button>
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+      ) : (
+        <DataTable columns={columns} data={filtered} isLoading={false}
+          actions={(item) => (
+            <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+          )}
+        />
+      )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Assign Teacher</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div>
+          <DialogHeader><DialogTitle>Create Assignment</DialogTitle></DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
               <Label>Teacher</Label>
-              <select value={form.teacher_id} onChange={e => setForm({ ...form, teacher_id: e.target.value })}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm">
-                <option value="">Select Teacher</option>
-                {Array.isArray(teachers) && teachers.map((t: any) => <option key={t.id} value={t.id}>{nv(t.first_name)} {nv(t.last_name)}</option>)}
-              </select>
+              <Select value={form.teacher_id} onValueChange={v => setForm(f => ({ ...f, teacher_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select teacher..." /></SelectTrigger>
+                <SelectContent>
+                  {teachers.map(t => (
+                    <SelectItem key={t.id} value={t.id}>{unwrapString(t.first_name)} {unwrapString(t.last_name)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>Subject</Label>
-              <select value={form.subject_id} onChange={e => setForm({ ...form, subject_id: e.target.value })}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm">
-                <option value="">Select Subject</option>
-                {Array.isArray(subjects) && subjects.map((s: any) => <option key={s.id} value={s.id}>{nv(s.name)}</option>)}
-              </select>
+              <Select value={form.subject_id} onValueChange={v => setForm(f => ({ ...f, subject_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select subject..." /></SelectTrigger>
+                <SelectContent>
+                  {subjects.map(s => (<SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>Section</Label>
-              <select value={form.section_id} onChange={e => setForm({ ...form, section_id: e.target.value })}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm">
-                <option value="">Select Section</option>
-                {Array.isArray(sections) && sections.map((s: any) => <option key={s.id} value={s.id}>{nv(s.name)}</option>)}
-              </select>
+              <Select value={form.section_id} onValueChange={v => setForm(f => ({ ...f, section_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select section..." /></SelectTrigger>
+                <SelectContent>
+                  {sections.map(s => (<SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
             </div>
+            <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? 'Saving...' : 'Create'}</Button>
           </div>
-          <DialogFooter><Button onClick={() => createMut.mutate(form)} disabled={createMut.isPending}>{createMut.isPending ? "Assigning..." : "Assign"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
-    </DashboardLayout>
+      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete} loading={deleting} title="Remove Assignment" />
+    </AnimatedPage>
   );
-};
-
-export default AssignmentsPage;
+}

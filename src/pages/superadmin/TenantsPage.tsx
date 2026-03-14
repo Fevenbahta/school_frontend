@@ -1,134 +1,342 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight } from "lucide-react";
-import DashboardLayout from "@/components/DashboardLayout";
-import EmptyState from "@/components/EmptyState";
-import TableSkeleton from "@/components/TableSkeleton";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { tenantsApi, nv } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
-import { superAdminNavItems } from "./navItems";
+import { useState, useEffect, useCallback } from 'react';
+import { api, unwrapString, unwrapTime } from '@/lib/api';
+import DataTable, { Column } from '@/components/shared/DataTable';
+import PageHeader from '@/components/shared/PageHeader';
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
+import AnimatedPage from '@/components/shared/AnimatedPage';
+import ViewToggle from '@/components/shared/ViewToggle';
+import SearchFilter from '@/components/shared/SearchFilter';
+import EmptyState from '@/components/shared/EmptyState';
+import { GridCardSkeleton, TableSkeleton } from '@/components/shared/LoadingSkeleton';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Edit, Trash2, Power, PowerOff, Building2, Phone, MapPin, Calendar, Eye, GraduationCap, UserCog, Users, Hash } from 'lucide-react';
+import { toast } from 'sonner';
+import { motion } from 'framer-motion';
+import { format } from 'date-fns';
 
-const TenantsPage = () => {
+export default function TenantsPage() {
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", address: "", phone: "" });
-  const [editForm, setEditForm] = useState({ id: "", name: "", address: "", phone: "" });
+  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [form, setForm] = useState({ name: '', address: '', phone: '' });
+  const [saving, setSaving] = useState(false);
+  const [credentials, setCredentials] = useState<{ admin_username: string; admin_password: string } | null>(null);
 
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["tenants", page], queryFn: () => tenantsApi.list(page, 20) });
-  const tenants = data?.data?.data ?? data?.data ?? [];
+  // Tenant detail state
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailTenant, setDetailTenant] = useState<any>(null);
+  const [tenantStudents, setTenantStudents] = useState<any[]>([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  const createMut = useMutation({ mutationFn: tenantsApi.create, onSuccess: (res) => {
-    qc.invalidateQueries({ queryKey: ["tenants"] }); setCreateOpen(false); setForm({ name: "", address: "", phone: "" });
-    const d = res.data;
-    toast({ title: "Tenant Created", description: `Username: ${d.admin_username ?? "N/A"} | Password: ${d.admin_password ?? "N/A"}` });
-  }});
-  const updateMut = useMutation({ mutationFn: tenantsApi.update, onSuccess: () => { qc.invalidateQueries({ queryKey: ["tenants"] }); setEditOpen(false); toast({ title: "Tenant Updated" }); }});
-  const deleteMut = useMutation({ mutationFn: tenantsApi.delete, onSuccess: () => { qc.invalidateQueries({ queryKey: ["tenants"] }); setDeleteId(null); toast({ title: "Tenant Deleted" }); }});
-  const activateMut = useMutation({ mutationFn: tenantsApi.activate, onSuccess: () => { qc.invalidateQueries({ queryKey: ["tenants"] }); toast({ title: "Tenant Activated" }); }});
-  const deactivateMut = useMutation({ mutationFn: tenantsApi.deactivate, onSuccess: () => { qc.invalidateQueries({ queryKey: ["tenants"] }); toast({ title: "Tenant Deactivated" }); }});
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try { setData(await api.getTenants(page) || []); } catch (e: any) { toast.error(e.message); }
+    setLoading(false);
+  }, [page]);
 
-  const filtered = Array.isArray(tenants) ? tenants.filter((t: any) => nv(t.name).toLowerCase().includes(search.toLowerCase())) : [];
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const openAdd = () => { setEditing(null); setForm({ name: '', address: '', phone: '' }); setDialogOpen(true); };
+  const openEdit = (item: any) => {
+    setEditing(item);
+    setForm({ name: item.name, address: unwrapString(item.address), phone: unwrapString(item.phone) });
+    setDialogOpen(true);
+  };
+
+  const viewTenantDetail = async (item: any) => {
+    setDetailTenant(item);
+    setDetailOpen(true);
+    setLoadingDetail(true);
+    try {
+      const students = await api.getStudentsSuperAdmin(item.id, 1, 100);
+      setTenantStudents(students || []);
+    } catch { setTenantStudents([]); }
+    setLoadingDetail(false);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { toast.error('Name is required'); return; }
+    setSaving(true);
+    try {
+      if (editing) {
+        await api.updateTenant({ id: editing.id, ...form });
+        toast.success('Tenant updated');
+      } else {
+        const res = await api.createTenant(form);
+        setCredentials({ admin_username: res.admin_username, admin_password: res.admin_password });
+        toast.success('Tenant created');
+      }
+      setDialogOpen(false); fetchData();
+    } catch (e: any) { toast.error(e.message); }
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try { await api.deleteTenant(deleteTarget); toast.success('Tenant deleted'); setDeleteTarget(null); fetchData(); }
+    catch (e: any) { toast.error(e.message); }
+    setDeleting(false);
+  };
+
+  const toggleStatus = async (item: any) => {
+    try {
+      const status = unwrapString(item.status);
+      if (status === 'active') { await api.deactivateTenant(item.id); toast.success('Deactivated'); }
+      else { await api.activateTenant(item.id); toast.success('Activated'); }
+      fetchData();
+    } catch (e: any) { toast.error(e.message); }
+  };
+
+  const filtered = data.filter(item => {
+    const matchSearch = !search || item.name?.toLowerCase().includes(search.toLowerCase()) || unwrapString(item.address)?.toLowerCase().includes(search.toLowerCase());
+    const matchStatus = !statusFilter || unwrapString(item.status) === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  const columns: Column<any>[] = [
+    { key: 'name', label: 'Name' },
+    { key: 'address', label: 'Address' },
+    { key: 'phone', label: 'Phone' },
+    {
+      key: 'status', label: 'Status',
+      render: (item) => {
+        const s = unwrapString(item.status);
+        return <Badge variant={s === 'active' ? 'default' : 'secondary'}>{s || '—'}</Badge>;
+      },
+    },
+  ];
 
   return (
-    <DashboardLayout navItems={superAdminNavItems} title="Manage Tenants">
-      <div className="flex flex-col sm:flex-row gap-4 mb-6 items-start sm:items-center justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search tenants..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-        </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2"><Plus className="w-4 h-4" /> Create Tenant</Button>
-      </div>
+    <AnimatedPage>
+      <PageHeader title="Tenants" description="Manage schools and institutions" onAdd={openAdd} addLabel="Add Tenant">
+        <ViewToggle view={view} onChange={setView} />
+      </PageHeader>
 
-      <div className="bg-card rounded-xl border border-border/50 overflow-hidden">
-        {isLoading ? <div className="p-6"><TableSkeleton /></div> : filtered.length === 0 ? <EmptyState /> : (
-          <Table>
-            <TableHeader><TableRow>
-              <TableHead>Name</TableHead><TableHead>Address</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {filtered.map((t: any) => (
-                <TableRow key={t.id} className="group">
-                  <TableCell className="font-medium">{nv(t.name)}</TableCell>
-                  <TableCell>{nv(t.address)}</TableCell>
-                  <TableCell>{nv(t.phone)}</TableCell>
-                  <TableCell>
-                    <Badge variant={t.is_active ? "default" : "secondary"} className="cursor-pointer"
-                      onClick={() => t.is_active ? deactivateMut.mutate(t.id) : activateMut.mutate(t.id)}>
-                      {t.is_active ? "Active" : "Inactive"}
+      <SearchFilter
+        search={search}
+        onSearchChange={setSearch}
+        placeholder="Search tenants..."
+        filters={[{
+          label: 'Status',
+          value: statusFilter,
+          onChange: setStatusFilter,
+          options: [{ label: 'Active', value: 'active' }, { label: 'Inactive', value: 'inactive' }],
+        }]}
+      />
+
+      {loading ? (
+        view === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1,2,3,4,5,6].map(i => <GridCardSkeleton key={i} />)}
+          </div>
+        ) : <TableSkeleton cols={4} />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={Building2} title="No tenants found" description={search ? 'Try adjusting your search.' : 'Add your first tenant to get started.'} action={!search ? <Button onClick={openAdd}>Add Tenant</Button> : undefined} />
+      ) : view === 'grid' ? (
+        <motion.div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+          initial="hidden" animate="show"
+          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06 } } }}
+        >
+          {filtered.map(item => (
+            <motion.div
+              key={item.id}
+              variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+              whileHover={{ y: -4, transition: { duration: 0.2 } }}
+              className="glass-card rounded-xl p-5 group cursor-pointer"
+              onClick={() => viewTenantDetail(item)}
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-secondary/15 flex items-center justify-center group-hover:bg-secondary/25 transition-colors">
+                    <Building2 className="w-6 h-6 text-secondary" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-semibold text-foreground">{item.name}</h3>
+                    <Badge variant={unwrapString(item.status) === 'active' ? 'default' : 'secondary'} className="mt-1 text-xs">
+                      {unwrapString(item.status)}
                     </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" onClick={() => { setEditForm({ id: t.id, name: nv(t.name), address: nv(t.address), phone: nv(t.phone) }); setEditOpen(true); }}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(t.id)} className="hover:text-destructive">
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                  </div>
+                </div>
+                <Eye className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+
+              <div className="space-y-2 mb-4">
+                {unwrapString(item.address) && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{unwrapString(item.address)}</span>
+                  </div>
+                )}
+                {unwrapString(item.phone) && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>{unwrapString(item.phone)}</span>
+                  </div>
+                )}
+                {unwrapTime(item.created_at) && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>{format(new Date(unwrapTime(item.created_at)), 'MMM d, yyyy')}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pt-3 border-t border-border/50" onClick={e => e.stopPropagation()}>
+                <Button variant="ghost" size="sm" className="flex-1 gap-1.5" onClick={() => toggleStatus(item)}>
+                  {unwrapString(item.status) === 'active' ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5 text-success" />}
+                  {unwrapString(item.status) === 'active' ? 'Deactivate' : 'Activate'}
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => openEdit(item)}><Edit className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={filtered}
+          isLoading={false}
+          page={page}
+          onPageChange={setPage}
+          actions={(item) => (
+            <div className="flex items-center gap-1 justify-end">
+              <Button variant="ghost" size="icon" onClick={() => viewTenantDetail(item)} title="View Details"><Eye className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" onClick={() => toggleStatus(item)} title={unwrapString(item.status) === 'active' ? 'Deactivate' : 'Activate'}>
+                {unwrapString(item.status) === 'active' ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4 text-success" />}
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => openEdit(item)}><Edit className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+            </div>
+          )}
+        />
+      )}
+
+      {/* Tenant Detail Dialog */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <Building2 className="w-5 h-5 text-secondary" />
+              {detailTenant?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {detailTenant && (
+            <ScrollArea className="flex-1 pr-4">
+              <div className="space-y-6 pb-4">
+                {/* Tenant info */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="bg-muted/10 rounded-lg p-4">
+                    <p className="text-xs text-muted-foreground mb-1">Status</p>
+                    <Badge variant={unwrapString(detailTenant.status) === 'active' ? 'default' : 'secondary'}>{unwrapString(detailTenant.status)}</Badge>
+                  </div>
+                  {unwrapString(detailTenant.address) && (
+                    <div className="bg-muted/10 rounded-lg p-4">
+                      <p className="text-xs text-muted-foreground mb-1">Address</p>
+                      <p className="text-sm font-medium text-foreground">{unwrapString(detailTenant.address)}</p>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+                  )}
+                  {unwrapString(detailTenant.phone) && (
+                    <div className="bg-muted/10 rounded-lg p-4">
+                      <p className="text-xs text-muted-foreground mb-1">Phone</p>
+                      <p className="text-sm font-medium text-foreground">{unwrapString(detailTenant.phone)}</p>
+                    </div>
+                  )}
+                  {unwrapTime(detailTenant.created_at) && (
+                    <div className="bg-muted/10 rounded-lg p-4">
+                      <p className="text-xs text-muted-foreground mb-1">Created</p>
+                      <p className="text-sm font-medium text-foreground">{format(new Date(unwrapTime(detailTenant.created_at)), 'MMM d, yyyy')}</p>
+                    </div>
+                  )}
+                  <div className="bg-muted/10 rounded-lg p-4">
+                    <p className="text-xs text-muted-foreground mb-1">Students</p>
+                    <p className="text-2xl font-bold text-foreground">{tenantStudents.length}</p>
+                  </div>
+                </div>
 
-      <div className="flex justify-center gap-2 mt-4">
-        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="w-4 h-4" /></Button>
-        <span className="flex items-center text-sm text-muted-foreground">Page {page}</span>
-        <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)}><ChevronRight className="w-4 h-4" /></Button>
-      </div>
-
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Create Tenant</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-            <div><Label>Address</Label><Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
-            <div><Label>Phone</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
-          </div>
-          <DialogFooter><Button onClick={() => createMut.mutate(form)} disabled={createMut.isPending}>{createMut.isPending ? "Creating..." : "Create"}</Button></DialogFooter>
+                {/* Students list */}
+                <div className="border border-border/50 rounded-lg">
+                  <div className="flex items-center justify-between p-4 border-b border-border/50">
+                    <h4 className="font-semibold text-foreground flex items-center gap-2">
+                      <GraduationCap className="w-4 h-4 text-secondary" />
+                      Students ({tenantStudents.length})
+                    </h4>
+                  </div>
+                  {loadingDetail ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>
+                  ) : tenantStudents.length > 0 ? (
+                    <div className="divide-y divide-border/30">
+                      {tenantStudents.map((s: any, i: number) => (
+                        <div key={s.id || i} className="flex items-center gap-3 p-3 hover:bg-muted/5 transition-colors">
+                          <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center">
+                            <span className="text-xs font-bold text-accent-foreground">
+                              {((unwrapString(s.first_name)?.[0] || '') + (unwrapString(s.last_name)?.[0] || '')).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground">{unwrapString(s.first_name)} {unwrapString(s.last_name)}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {unwrapString(s.student_code) && <span className="flex items-center gap-1"><Hash className="w-3 h-3" />{unwrapString(s.student_code)}</span>}
+                            </div>
+                          </div>
+                          <Badge variant={unwrapString(s.status) === 'active' ? 'default' : 'secondary'} className="text-xs">
+                            {unwrapString(s.status)}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center text-muted-foreground text-sm">No students in this school yet</div>
+                  )}
+                </div>
+              </div>
+            </ScrollArea>
+          )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+      {/* Add/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Tenant</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Name</Label><Input value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} /></div>
-            <div><Label>Address</Label><Input value={editForm.address} onChange={e => setEditForm({ ...editForm, address: e.target.value })} /></div>
-            <div><Label>Phone</Label><Input value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: e.target.value })} /></div>
+          <DialogHeader><DialogTitle>{editing ? 'Edit Tenant' : 'Add Tenant'}</DialogTitle></DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2"><Label>Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Address</Label><Input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>
+            <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? 'Saving...' : 'Save'}</Button>
           </div>
-          <DialogFooter><Button onClick={() => updateMut.mutate(editForm)} disabled={updateMut.isPending}>{updateMut.isPending ? "Saving..." : "Save"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Delete Tenant?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteId && deleteMut.mutate(deleteId)} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </DashboardLayout>
+      {/* Credentials Dialog */}
+      <Dialog open={!!credentials} onOpenChange={() => setCredentials(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Admin Credentials</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground mb-4">Save these credentials. They won't be shown again.</p>
+          <div className="space-y-3 bg-accent/50 p-4 rounded-lg font-mono text-sm">
+            <div><span className="text-muted-foreground">Username:</span> {credentials?.admin_username}</div>
+            <div><span className="text-muted-foreground">Password:</span> {credentials?.admin_password}</div>
+          </div>
+          <Button onClick={() => setCredentials(null)} className="w-full mt-2">Done</Button>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete} loading={deleting} title="Delete Tenant" description="This will permanently delete the tenant and all associated data." />
+    </AnimatedPage>
   );
-};
-
-export default TenantsPage;
+}

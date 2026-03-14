@@ -1,82 +1,68 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { jwtDecode } from "jwt-decode";
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { api, setToken, clearToken, parseJwt } from '@/lib/api';
+import { toast } from 'sonner';
 
-interface JwtPayload {
+export type UserRole = 'super_admin' | 'school_admin' | 'teacher' | 'student';
+
+interface User {
   uid: string;
   tid?: string;
-  role: string;
-  exp: number;
+  role: UserRole;
 }
 
 interface AuthContextType {
-  token: string | null;
-  user: JwtPayload | null;
-  isAuthenticated: boolean;
-  login: (token: string) => void;
+  user: User | null;
+  isLoading: boolean;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
-  role: string | null;
-  tenantId: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
-  const [user, setUser] = useState<JwtPayload | null>(null);
-
-  const decodeAndSet = useCallback((t: string | null) => {
-    if (!t) { setUser(null); return; }
-    try {
-      const decoded = jwtDecode<JwtPayload>(t);
-      if (decoded.exp * 1000 < Date.now()) {
-        localStorage.removeItem("token");
-        setToken(null);
-        setUser(null);
-        return;
-      }
-      setUser(decoded);
-    } catch {
-      localStorage.removeItem("token");
-      setToken(null);
-      setUser(null);
-    }
-  }, []);
-
-  useEffect(() => { decodeAndSet(token); }, [token, decodeAndSet]);
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-    const timeout = user.exp * 1000 - Date.now();
-    if (timeout <= 0) { logout(); return; }
-    const timer = setTimeout(logout, timeout);
-    return () => clearTimeout(timer);
-  }, [user]);
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      const payload = parseJwt(token);
+      if (payload && payload.exp * 1000 > Date.now()) {
+        setUser({ uid: payload.uid, tid: payload.tid, role: payload.role });
+      } else {
+        clearToken();
+      }
+    }
+    setIsLoading(false);
+  }, []);
 
-  const login = (t: string) => {
-    localStorage.setItem("token", t);
-    setToken(t);
-  };
+  const login = useCallback(async (username: string, password: string) => {
+    const res = await api.login(username, password);
+    setToken(res.token);
+    const payload = parseJwt(res.token);
+    setUser({ uid: payload.uid, tid: payload.tid, role: payload.role });
+    toast.success('Login successful');
+    // Navigate to dashboard after login (clear any stale URL)
+    window.history.replaceState(null, '', '/dashboard');
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    setToken(null);
+  const logout = useCallback(() => {
+    clearToken();
     setUser(null);
-  };
+    toast.success('Logged out');
+    // Reset URL to root so next login goes to dashboard
+    window.history.replaceState(null, '', '/');
+  }, []);
 
   return (
-    <AuthContext.Provider value={{
-      token, user, isAuthenticated: !!user,
-      login, logout,
-      role: user?.role ?? null,
-      tenantId: user?.tid ?? null,
-    }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
-export const useAuth = () => {
+export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
-};
+}
