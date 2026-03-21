@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081';
 
 interface NullableString {
   String: string;
@@ -127,6 +127,10 @@ export const api = {
       method: 'POST', body: formData,
     });
   },
+
+  // Super Admin - Sections (tenant-scoped)
+  getSectionsSuperAdmin: (tenantId: string, page = 1, pageSize = 20) =>
+    request<any[]>(`/api/v1/superadmin/sections?tenant_id=${tenantId}&page=${page}&page_size=${pageSize}`),
 
   // School Admin - Departments
   getDepartments: (page = 1, pageSize = 20) =>

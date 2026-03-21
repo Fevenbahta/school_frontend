@@ -17,7 +17,10 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Eye, Send, ClipboardList, Clock, CheckCircle2, FileQuestion, Plus, Trash2, Shuffle, ListOrdered, BookOpen, Users, Award, Download } from 'lucide-react';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
+import { Eye, Send, ClipboardList, Clock, CheckCircle2, FileQuestion, Plus, Trash2, Shuffle, ListOrdered, BookOpen, Users, Award, Download, CalendarIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
@@ -379,12 +382,74 @@ export default function ExamsPage() {
             </div>
             <div className="space-y-2"><Label>Duration (minutes)</Label><Input type="number" value={form.duration_minutes} onChange={e => setForm(f => ({ ...f, duration_minutes: Number(e.target.value) }))} /></div>
             <div className="space-y-2">
-              <Label>Start Time</Label>
-              <Input type="datetime-local" value={form.start_time} onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))} />
+              <Label>Start Date & Time</Label>
+              <div className="flex gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("flex-1 justify-start text-left font-normal", !form.start_time && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {form.start_time ? format(new Date(form.start_time), 'MMM d, yyyy') : 'Pick date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={form.start_time ? new Date(form.start_time) : undefined}
+                      onSelect={(date) => {
+                        if (!date) return;
+                        const existing = form.start_time ? new Date(form.start_time) : new Date();
+                        date.setHours(existing.getHours(), existing.getMinutes());
+                        setForm(f => ({ ...f, start_time: toLocalDatetimeString(date.toISOString()) }));
+                      }}
+                      className="p-3 pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Input
+                  type="time"
+                  className="w-28"
+                  value={form.start_time ? form.start_time.split('T')[1] || '' : ''}
+                  onChange={e => {
+                    const date = form.start_time ? form.start_time.split('T')[0] : new Date().toISOString().split('T')[0];
+                    setForm(f => ({ ...f, start_time: `${date}T${e.target.value}` }));
+                  }}
+                />
+              </div>
             </div>
             <div className="space-y-2">
-              <Label>End Time</Label>
-              <Input type="datetime-local" value={form.end_time} onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))} />
+              <Label>End Date & Time</Label>
+              <div className="flex gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("flex-1 justify-start text-left font-normal", !form.end_time && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {form.end_time ? format(new Date(form.end_time), 'MMM d, yyyy') : 'Pick date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={form.end_time ? new Date(form.end_time) : undefined}
+                      onSelect={(date) => {
+                        if (!date) return;
+                        const existing = form.end_time ? new Date(form.end_time) : new Date();
+                        date.setHours(existing.getHours(), existing.getMinutes());
+                        setForm(f => ({ ...f, end_time: toLocalDatetimeString(date.toISOString()) }));
+                      }}
+                      className="p-3 pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Input
+                  type="time"
+                  className="w-28"
+                  value={form.end_time ? form.end_time.split('T')[1] || '' : ''}
+                  onChange={e => {
+                    const date = form.end_time ? form.end_time.split('T')[0] : new Date().toISOString().split('T')[0];
+                    setForm(f => ({ ...f, end_time: `${date}T${e.target.value}` }));
+                  }}
+                />
+              </div>
             </div>
             <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? 'Saving...' : 'Create'}</Button>
           </div>

@@ -31,23 +31,19 @@ export default function SAStudentsPage() {
   const [editing, setEditing] = useState<any>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ student_code: '', first_name: '', last_name: '', email: '', section_id: '', department_id: '' });
+  const [form, setForm] = useState({ student_code: '', first_name: '', last_name: '', email: '', section_id: '' });
   const [saving, setSaving] = useState(false);
   const [credentials, setCredentials] = useState<{ username: string; password: string } | null>(null);
 
-  // Sections & departments for the selected tenant
+  // Sections for the selected tenant
   const [sections, setSections] = useState<any[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
 
   useEffect(() => { api.getTenants(1, 100).then(setTenants).catch(() => {}); }, []);
 
-  // Fetch sections & departments when tenant changes (school-level data)
+  // Fetch sections when tenant changes using superadmin endpoint
   useEffect(() => {
     if (!tenantId) return;
-    // These are school admin endpoints, but super admin may not have access.
-    // We'll pass them as optional fields in the form.
-    api.getSections(1, 100).then(d => setSections(d || [])).catch(() => setSections([]));
-    api.getDepartments(1, 100).then(d => setDepartments(d || [])).catch(() => setDepartments([]));
+    api.getSectionsSuperAdmin(tenantId, 1, 100).then(d => setSections(d || [])).catch(() => setSections([]));
   }, [tenantId]);
 
   const fetchStudents = useCallback(async () => {
@@ -69,7 +65,6 @@ export default function SAStudentsPage() {
       } else {
         const payload: any = { tenant_id: tenantId, student_code: form.student_code, first_name: form.first_name, last_name: form.last_name, email: form.email };
         if (form.section_id) payload.section_id = form.section_id;
-        if (form.department_id) payload.department_id = form.department_id;
         const res = await api.createStudentSuperAdmin(payload);
         setCredentials({ username: res.username, password: res.password });
         toast.success('Created');
@@ -127,7 +122,7 @@ export default function SAStudentsPage() {
 
   return (
     <AnimatedPage>
-      <PageHeader title="Students" description="Manage students across tenants" onAdd={tenantId ? () => { setEditing(null); setForm({ student_code: '', first_name: '', last_name: '', email: '', section_id: '', department_id: '' }); setDialogOpen(true); } : undefined} addLabel="Add Student">
+      <PageHeader title="Students" description="Manage students across tenants" onAdd={tenantId ? () => { setEditing(null); setForm({ student_code: '', first_name: '', last_name: '', email: '', section_id: '' }); setDialogOpen(true); } : undefined} addLabel="Add Student">
         <label className="cursor-pointer">
           <input type="file" accept=".csv" className="hidden" onChange={handleImport} disabled={importing} />
           <Button variant="outline" asChild disabled={importing}>
@@ -214,7 +209,7 @@ export default function SAStudentsPage() {
                 {unwrapString(item.status) || item.status}
               </Badge>
               <div className="flex items-center gap-2 pt-3 border-t border-border/50">
-                <Button variant="ghost" size="icon" onClick={() => { setEditing(item); setForm({ student_code: unwrapString(item.student_code), first_name: unwrapString(item.first_name), last_name: unwrapString(item.last_name), email: '', section_id: '', department_id: '' }); setDialogOpen(true); }}><Edit className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => { setEditing(item); setForm({ student_code: unwrapString(item.student_code), first_name: unwrapString(item.first_name), last_name: unwrapString(item.last_name), email: '', section_id: '' }); setDialogOpen(true); }}><Edit className="w-4 h-4" /></Button>
                 {statusFilter === 'active' && (
                   <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                 )}
@@ -226,7 +221,7 @@ export default function SAStudentsPage() {
         <DataTable columns={columns} data={filtered} isLoading={false} page={page} onPageChange={setPage}
           actions={(item) => (
             <div className="flex items-center gap-1 justify-end">
-              <Button variant="ghost" size="icon" onClick={() => { setEditing(item); setForm({ student_code: unwrapString(item.student_code), first_name: unwrapString(item.first_name), last_name: unwrapString(item.last_name), email: '', section_id: '', department_id: '' }); setDialogOpen(true); }}><Edit className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" onClick={() => { setEditing(item); setForm({ student_code: unwrapString(item.student_code), first_name: unwrapString(item.first_name), last_name: unwrapString(item.last_name), email: '', section_id: '' }); setDialogOpen(true); }}><Edit className="w-4 h-4" /></Button>
               {statusFilter === 'active' && (
                 <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
               )}
@@ -246,23 +241,14 @@ export default function SAStudentsPage() {
               <>
                 <div className="space-y-2"><Label>Email</Label><Input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
                 <div className="space-y-2">
-                  <Label>Section</Label>
+                  <Label>Section <span className="text-destructive">*</span></Label>
                   <Select value={form.section_id} onValueChange={v => setForm(f => ({ ...f, section_id: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select section..." /></SelectTrigger>
                     <SelectContent>
                       {sections.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{unwrapString(s.name) || s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Department</Label>
-                  <Select value={form.department_id} onValueChange={v => setForm(f => ({ ...f, department_id: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Select department..." /></SelectTrigger>
-                    <SelectContent>
-                      {departments.map(d => (
-                        <SelectItem key={d.id} value={d.id}>{unwrapString(d.name) || d.name}</SelectItem>
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name} {unwrapString(s.grade_level) ? `(Grade ${unwrapString(s.grade_level)})` : ''}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
