@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Edit, Trash2, Upload, HelpCircle, Star, Plus, CheckCircle2, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Edit, Trash2, Upload, HelpCircle, Star, Plus, CheckCircle2, XCircle, ChevronDown, ChevronUp, Image as ImageIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -41,7 +41,8 @@ export default function QuestionsPage() {
   const [diffFilter, setDiffFilter] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
-  const [form, setForm] = useState({ question_text: '', type: 'mcq', marks: 1, difficulty_level: 'easy' });
+  const [form, setForm] = useState<{ question_text: string; type: string; marks: number; difficulty_level: string; image_url?: string }>({ question_text: '', type: 'mcq', marks: 1, difficulty_level: 'easy', image_url: '' });
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [inlineOptions, setInlineOptions] = useState<InlineOption[]>([
     { text: '', is_correct: true },
     { text: '', is_correct: false },
@@ -110,28 +111,53 @@ export default function QuestionsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const validOptions = inlineOptions.filter(o => o.text.trim());
+      if (validOptions.length < 2) {
+        toast.error('Add at least 2 options');
+        setSaving(false);
+        return;
+      }
+      const correctCount = validOptions.filter(o => o.is_correct).length;
+      if (correctCount !== 1) {
+        toast.error('Exactly one option must be marked as correct');
+        setSaving(false);
+        return;
+      }
+
       if (editing) {
-        await api.updateQuestion({ id: editing.id, question_text: form.question_text });
-        toast.success('Updated');
+        // Update question fields
+        const updatePayload: any = {
+          id: editing.id,
+          question_text: form.question_text,
+          type: form.type,
+          marks: form.marks,
+          difficulty_level: form.difficulty_level,
+        };
+        if (form.image_url) updatePayload.image_url = form.image_url;
+        await api.updateQuestion(updatePayload);
+
+        // Sync options: update existing in place by index, create new, delete extras
+        const existing = options[editing.id] || [];
+        const maxLen = Math.max(existing.length, validOptions.length);
+        for (let i = 0; i < maxLen; i++) {
+          const newOpt = validOptions[i];
+          const oldOpt = existing[i];
+          if (newOpt && oldOpt) {
+            await api.updateOption({ id: oldOpt.id, option_text: newOpt.text, is_correct: newOpt.is_correct });
+          } else if (newOpt && !oldOpt) {
+            await api.createOption({ question_id: editing.id, option_text: newOpt.text, is_correct: newOpt.is_correct });
+          } else if (!newOpt && oldOpt) {
+            await api.deleteOption(oldOpt.id);
+          }
+        }
+        // Refresh options cache for this question
+        await fetchOptions(editing.id);
+        toast.success('Question updated');
       } else {
-        // Create question then add options
-        const validOptions = inlineOptions.filter(o => o.text.trim());
-        if (validOptions.length < 2) {
-          toast.error('Add at least 2 options');
-          setSaving(false);
-          return;
-        }
-        const correctCount = validOptions.filter(o => o.is_correct).length;
-        if (correctCount !== 1) {
-          toast.error('Exactly one option must be marked as correct');
-          setSaving(false);
-          return;
-        }
-
-        const res = await api.createQuestion({ question_bank_id: bankId!, ...form });
+        const payload: any = { question_bank_id: bankId!, ...form };
+        if (!form.image_url) delete payload.image_url;
+        const res = await api.createQuestion(payload);
         const questionId = res.id;
-
-        // Create all options
         for (const opt of validOptions) {
           await api.createOption({ question_id: questionId, option_text: opt.text, is_correct: opt.is_correct });
         }
@@ -142,6 +168,48 @@ export default function QuestionsPage() {
     } catch (e: any) { toast.error(e.message); }
     setSaving(false);
   };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    try {
+      const res = await api.uploadQuestionImage(file);
+      setForm(f => ({ ...f, image_url: res.url }));
+      toast.success('Image uploaded');
+    } catch (err: any) { toast.error(err.message); }
+    setUploadingImage(false);
+    e.target.value = '';
+  };
+
+  const openEditQuestion = async (item: any) => {
+    setEditing(item);
+    setForm({
+      question_text: unwrapString(item.question_text),
+      type: unwrapString(item.type) || 'mcq',
+      marks: unwrapInt(item.marks),
+      difficulty_level: unwrapString(item.difficulty_level) || 'easy',
+      image_url: unwrapString(item.image_url) || '',
+    });
+    // Load options into inline editor
+    let opts = options[item.id];
+    if (!opts) {
+      try {
+        opts = await api.getOptions(item.id, 1, 50) || [];
+        setOptions(prev => ({ ...prev, [item.id]: opts! }));
+      } catch { opts = []; }
+    }
+    if (opts && opts.length > 0) {
+      setInlineOptions(opts.map((o: any) => ({
+        text: unwrapString(o.option_text) || o.option_text || '',
+        is_correct: !!o.is_correct,
+      })));
+    } else {
+      resetInlineOptions(unwrapString(item.type) || 'mcq');
+    }
+    setDialogOpen(true);
+  };
+
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -362,7 +430,7 @@ export default function QuestionsPage() {
                     <Button variant="ghost" size="icon" onClick={() => toggleExpand(item.id)} title="Options">
                       {expandedQuestion === item.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => { setEditing(item); setForm({ question_text: unwrapString(item.question_text), type: unwrapString(item.type), marks: unwrapInt(item.marks), difficulty_level: unwrapString(item.difficulty_level) }); setDialogOpen(true); }}><Edit className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => openEditQuestion(item)}><Edit className="w-4 h-4" /></Button>
                     <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                   </div>
                 </div>
@@ -378,7 +446,7 @@ export default function QuestionsPage() {
               <Button variant="ghost" size="icon" onClick={() => toggleExpand(item.id)} title="Options">
                 {expandedQuestion === item.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => { setEditing(item); setForm({ question_text: unwrapString(item.question_text), type: unwrapString(item.type), marks: unwrapInt(item.marks), difficulty_level: unwrapString(item.difficulty_level) }); setDialogOpen(true); }}><Edit className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" onClick={() => openEditQuestion(item)}><Edit className="w-4 h-4" /></Button>
               <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
             </div>
           )}
@@ -391,71 +459,90 @@ export default function QuestionsPage() {
           <DialogHeader><DialogTitle>{editing ? 'Edit Question' : 'Add Question with Options'}</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="space-y-2"><Label>Question Text</Label><Input value={form.question_text} onChange={e => setForm(f => ({ ...f, question_text: e.target.value }))} placeholder="Enter your question..." /></div>
-            {!editing && (
-              <>
-                <div className="space-y-2">
-                  <Label>Type</Label>
-                  <Select value={form.type} onValueChange={v => { setForm(f => ({ ...f, type: v })); resetInlineOptions(v); }}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="mcq">MCQ (Multiple Choice)</SelectItem>
-                      <SelectItem value="true_false">True/False</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>Marks</Label><Input type="number" min={1} value={form.marks} onChange={e => setForm(f => ({ ...f, marks: Number(e.target.value) }))} /></div>
-                  <div className="space-y-2">
-                    <Label>Difficulty</Label>
-                    <Select value={form.difficulty_level} onValueChange={v => setForm(f => ({ ...f, difficulty_level: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="easy">Easy</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="hard">Hard</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
 
-                {/* Inline Options */}
-                <div className="space-y-3 pt-2 border-t border-border/30">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm font-semibold">Answer Options</Label>
-                    {form.type === 'mcq' && inlineOptions.length < 6 && (
-                      <Button type="button" variant="outline" size="sm" className="gap-1 h-7 text-xs" onClick={addInlineOption}>
-                        <Plus className="w-3 h-3" /> Add Option
-                      </Button>
-                    )}
-                  </div>
-                  {inlineOptions.map((opt, idx) => (
-                    <div key={idx} className={`flex items-center gap-2 rounded-lg p-2.5 border transition-colors ${opt.is_correct ? 'border-success/40 bg-success/5' : 'border-border/30 bg-muted/5'}`}>
-                      <button
-                        type="button"
-                        onClick={() => setCorrectOption(idx)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-all ${opt.is_correct ? 'bg-success text-success-foreground shadow-sm' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'}`}
-                        title={opt.is_correct ? 'Correct answer' : 'Mark as correct'}
-                      >
-                        {opt.is_correct ? <CheckCircle2 className="w-4 h-4" /> : String.fromCharCode(65 + idx)}
-                      </button>
-                      <Input
-                        value={opt.text}
-                        onChange={e => updateInlineOptionText(idx, e.target.value)}
-                        placeholder={`Option ${String.fromCharCode(65 + idx)}...`}
-                        className="flex-1 h-8 text-sm"
-                        disabled={form.type === 'true_false'}
-                      />
-                      {form.type === 'mcq' && inlineOptions.length > 2 && (
-                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" onClick={() => removeInlineOption(idx)}>
-                          <Trash2 className="w-3 h-3 text-destructive" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">Click the circle to mark the correct answer</p>
+            {/* Image upload */}
+            <div className="space-y-2">
+              <Label>Image (optional)</Label>
+              {form.image_url ? (
+                <div className="relative inline-block">
+                  <img src={form.image_url.startsWith('http') ? form.image_url : `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081'}${form.image_url}`} alt="Question" className="max-h-32 rounded-lg border border-border/40" />
+                  <Button type="button" variant="ghost" size="icon" className="absolute -top-2 -right-2 h-6 w-6 bg-background border" onClick={() => setForm(f => ({ ...f, image_url: '' }))}>
+                    <X className="w-3 h-3" />
+                  </Button>
                 </div>
-              </>
-            )}
+              ) : (
+                <label className="cursor-pointer">
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                  <div className="flex items-center gap-2 px-3 py-2 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:bg-accent/30 transition-colors">
+                    <ImageIcon className="w-4 h-4" />
+                    {uploadingImage ? 'Uploading...' : 'Click to upload image'}
+                  </div>
+                </label>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select value={form.type} onValueChange={v => { setForm(f => ({ ...f, type: v })); if (!editing) resetInlineOptions(v); }} disabled={!!editing}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mcq">MCQ (Multiple Choice)</SelectItem>
+                  <SelectItem value="true_false">True/False</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Marks</Label><Input type="number" min={1} value={form.marks} onChange={e => setForm(f => ({ ...f, marks: Number(e.target.value) }))} /></div>
+              <div className="space-y-2">
+                <Label>Difficulty</Label>
+                <Select value={form.difficulty_level} onValueChange={v => setForm(f => ({ ...f, difficulty_level: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="hard">Hard</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Inline Options (create + edit) */}
+            <div className="space-y-3 pt-2 border-t border-border/30">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold">Answer Options</Label>
+                {form.type === 'mcq' && inlineOptions.length < 6 && (
+                  <Button type="button" variant="outline" size="sm" className="gap-1 h-7 text-xs" onClick={addInlineOption}>
+                    <Plus className="w-3 h-3" /> Add Option
+                  </Button>
+                )}
+              </div>
+              {inlineOptions.map((opt, idx) => (
+                <div key={idx} className={`flex items-center gap-2 rounded-lg p-2.5 border transition-colors ${opt.is_correct ? 'border-success/40 bg-success/5' : 'border-border/30 bg-muted/5'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setCorrectOption(idx)}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-all ${opt.is_correct ? 'bg-success text-success-foreground shadow-sm' : 'bg-muted/20 text-muted-foreground hover:bg-muted/40'}`}
+                    title={opt.is_correct ? 'Correct answer' : 'Mark as correct'}
+                  >
+                    {opt.is_correct ? <CheckCircle2 className="w-4 h-4" /> : String.fromCharCode(65 + idx)}
+                  </button>
+                  <Input
+                    value={opt.text}
+                    onChange={e => updateInlineOptionText(idx, e.target.value)}
+                    placeholder={`Option ${String.fromCharCode(65 + idx)}...`}
+                    className="flex-1 h-8 text-sm"
+                    disabled={form.type === 'true_false'}
+                  />
+                  {form.type === 'mcq' && inlineOptions.length > 2 && (
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" onClick={() => removeInlineOption(idx)}>
+                      <Trash2 className="w-3 h-3 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">Click the circle to mark the correct answer</p>
+            </div>
+
             <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? 'Saving...' : editing ? 'Update Question' : 'Create Question'}</Button>
           </div>
         </DialogContent>

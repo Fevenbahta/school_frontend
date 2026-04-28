@@ -188,8 +188,8 @@ export default function StudentExamsPage() {
                 <Timer className="w-4 h-4" />
                 {formatTime(timeLeft)}
               </motion.div>
-              <Button variant="destructive" size="sm" className="gap-1.5 shadow-sm" onClick={() => submitExam()} disabled={submitting}>
-                <Send className="w-3.5 h-3.5" /> {submitting ? 'Submitting...' : 'Submit'}
+              <Button variant="destructive" size="sm" className="gap-1.5 shadow-sm" onClick={() => submitExam()} disabled={submitting || answeredCount < totalQuestions} title={answeredCount < totalQuestions ? `Answer all ${totalQuestions} questions first (${totalQuestions - answeredCount} left)` : 'Submit exam'}>
+                <Send className="w-3.5 h-3.5" /> {submitting ? 'Submitting...' : answeredCount < totalQuestions ? `${totalQuestions - answeredCount} left` : 'Submit'}
               </Button>
             </div>
           </div>
@@ -364,8 +364,8 @@ export default function StudentExamsPage() {
                           Next <ChevronRight className="w-4 h-4" />
                         </Button>
                       ) : (
-                        <Button variant="destructive" size="lg" onClick={() => submitExam()} disabled={submitting} className="gap-2">
-                          <Send className="w-4 h-4" /> {submitting ? 'Submitting...' : 'Finish & Submit'}
+                        <Button variant="destructive" size="lg" onClick={() => submitExam()} disabled={submitting || answeredCount < totalQuestions} className="gap-2" title={answeredCount < totalQuestions ? `Answer all ${totalQuestions} questions first` : 'Submit exam'}>
+                          <Send className="w-4 h-4" /> {submitting ? 'Submitting...' : answeredCount < totalQuestions ? `Answer all (${totalQuestions - answeredCount} left)` : 'Finish & Submit'}
                         </Button>
                       )}
                     </div>

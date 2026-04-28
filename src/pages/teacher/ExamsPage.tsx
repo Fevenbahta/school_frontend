@@ -20,7 +20,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { Eye, Send, ClipboardList, Clock, CheckCircle2, FileQuestion, Plus, Trash2, Shuffle, ListOrdered, BookOpen, Users, Award, Download, CalendarIcon } from 'lucide-react';
+import { Eye, Send, ClipboardList, Clock, CheckCircle2, FileQuestion, Plus, Trash2, Shuffle, ListOrdered, BookOpen, Users, Award, Download, CalendarIcon, XCircle } from 'lucide-react';
+import { getSubjectEmoji } from '@/lib/subjectIcon';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
@@ -129,6 +130,11 @@ export default function ExamsPage() {
 
   const publishExam = async (id: string) => {
     try { await api.updateExamStatus(id, 'published'); toast.success('Exam published'); fetchData(); }
+    catch (e: any) { toast.error(e.message); }
+  };
+
+  const unpublishExam = async (id: string) => {
+    try { await api.updateExamStatus(id, 'draft'); toast.success('Exam unpublished'); fetchData(); }
     catch (e: any) { toast.error(e.message); }
   };
 
@@ -285,8 +291,8 @@ export default function ExamsPage() {
                         {status}
                       </Badge>
                     </div>
-                    <div className="w-12 h-12 rounded-xl bg-secondary/15 flex items-center justify-center">
-                      <FileQuestion className="w-6 h-6 text-secondary" />
+                    <div className="w-12 h-12 rounded-xl bg-secondary/15 flex items-center justify-center text-2xl">
+                      {getSubjectEmoji(subjectName) || <FileQuestion className="w-6 h-6 text-secondary" />}
                     </div>
                   </div>
 
@@ -329,6 +335,11 @@ export default function ExamsPage() {
                         <Send className="w-3.5 h-3.5" /> Publish
                       </Button>
                     )}
+                    {status === 'published' && (!endT || new Date(endT) > new Date()) && (
+                      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => unpublishExam(item.id)} title="Unpublish">
+                        <XCircle className="w-3.5 h-3.5" /> Unpublish
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openAddQuestions(item.id)}>
                       <Plus className="w-3.5 h-3.5" /> Questions
                     </Button>
@@ -348,15 +359,23 @@ export default function ExamsPage() {
         </motion.div>
       ) : (
         <DataTable columns={columns} data={filtered} isLoading={false} page={page} onPageChange={setPage}
-          actions={(item) => (
-            <div className="flex items-center gap-1 justify-end">
-              {unwrapString(item.status) === 'draft' && (
-                <Button variant="ghost" size="icon" onClick={() => publishExam(item.id)} title="Publish"><Send className="w-4 h-4 text-primary" /></Button>
-              )}
-              <Button variant="ghost" size="icon" onClick={() => openAddQuestions(item.id)} title="Add Questions"><Plus className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" onClick={() => viewDetail(item.id)}><Eye className="w-4 h-4" /></Button>
-            </div>
-          )}
+          actions={(item) => {
+            const status = unwrapString(item.status);
+            const endT = unwrapTime(item.end_time);
+            const canUnpublish = status === 'published' && (!endT || new Date(endT) > new Date());
+            return (
+              <div className="flex items-center gap-1 justify-end">
+                {status === 'draft' && (
+                  <Button variant="ghost" size="icon" onClick={() => publishExam(item.id)} title="Publish"><Send className="w-4 h-4 text-primary" /></Button>
+                )}
+                {canUnpublish && (
+                  <Button variant="ghost" size="icon" onClick={() => unpublishExam(item.id)} title="Unpublish"><XCircle className="w-4 h-4 text-warning" /></Button>
+                )}
+                <Button variant="ghost" size="icon" onClick={() => openAddQuestions(item.id)} title="Add Questions"><Plus className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => viewDetail(item.id)}><Eye className="w-4 h-4" /></Button>
+              </div>
+            );
+          }}
         />
       )}
 

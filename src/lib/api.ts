@@ -91,7 +91,7 @@ export const api = {
     request<any[]>(`/api/v1/superadmin/tenants?page=${page}&page_size=${pageSize}`),
   getTenant: (id: string) =>
     request<any>(`/api/v1/superadmin/tenants/${id}`),
-  createTenant: (data: { name: string; address: string; phone: string }) =>
+  createTenant: (data: { name: string; admin_username?: string; address: string; phone: string }) =>
     request<{ id: string; admin_username: string; admin_password: string }>('/api/v1/superadmin/tenants', {
       method: 'POST', body: JSON.stringify(data),
     }),
@@ -177,7 +177,7 @@ export const api = {
   // School Admin - Teachers
   getTeachers: (page = 1, pageSize = 20) =>
     request<any[]>(`/api/v1/school/teachers?page=${page}&page_size=${pageSize}`),
-  createTeacher: (data: { first_name: string; last_name: string; email: string }) =>
+  createTeacher: (data: { first_name: string; last_name: string; email: string; teacher_code?: string }) =>
     request<{ teacher_id: string; username: string; password: string }>('/api/v1/school/teachers', {
       method: 'POST', body: JSON.stringify(data),
     }),
@@ -215,11 +215,18 @@ export const api = {
   // Teacher - Questions
   getQuestions: (bankId: string, page = 1, pageSize = 20) =>
     request<any[]>(`/api/v1/teacher/questions?bank_id=${bankId}&page=${page}&page_size=${pageSize}`),
-  createQuestion: (data: { question_bank_id: string; type: string; question_text: string; marks: number; difficulty_level: string }) =>
+  createQuestion: (data: { question_bank_id: string; type: string; question_text: string; marks: number; difficulty_level: string; image_url?: string }) =>
     request<{ id: string }>('/api/v1/teacher/questions', {
       method: 'POST', body: JSON.stringify(data),
     }),
-  updateQuestion: (data: { id: string; question_text?: string }) =>
+  uploadQuestionImage: (file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return request<{ url: string }>('/api/v1/teacher/upload', {
+      method: 'POST', body: formData,
+    });
+  },
+  updateQuestion: (data: { id: string; question_text?: string; type?: string; marks?: number; difficulty_level?: string; image_url?: string }) =>
     request<any>('/api/v1/teacher/questions', {
       method: 'PATCH', body: JSON.stringify(data),
     }),

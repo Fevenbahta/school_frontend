@@ -31,7 +31,7 @@ export default function TenantsPage() {
   const [editing, setEditing] = useState<any>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ name: '', address: '', phone: '' });
+  const [form, setForm] = useState({ name: '', admin_username: '', address: '', phone: '' });
   const [saving, setSaving] = useState(false);
   const [credentials, setCredentials] = useState<{ admin_username: string; admin_password: string } | null>(null);
 
@@ -49,10 +49,10 @@ export default function TenantsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const openAdd = () => { setEditing(null); setForm({ name: '', address: '', phone: '' }); setDialogOpen(true); };
+  const openAdd = () => { setEditing(null); setForm({ name: '', admin_username: '', address: '', phone: '' }); setDialogOpen(true); };
   const openEdit = (item: any) => {
     setEditing(item);
-    setForm({ name: item.name, address: unwrapString(item.address), phone: unwrapString(item.phone) });
+    setForm({ name: item.name, admin_username: '', address: unwrapString(item.address), phone: unwrapString(item.phone) });
     setDialogOpen(true);
   };
 
@@ -72,10 +72,12 @@ export default function TenantsPage() {
     setSaving(true);
     try {
       if (editing) {
-        await api.updateTenant({ id: editing.id, ...form });
+        await api.updateTenant({ id: editing.id, name: form.name, address: form.address, phone: form.phone });
         toast.success('Tenant updated');
       } else {
-        const res = await api.createTenant(form);
+        const payload: any = { name: form.name, address: form.address, phone: form.phone };
+        if (form.admin_username.trim()) payload.admin_username = form.admin_username.trim();
+        const res = await api.createTenant(payload);
         setCredentials({ admin_username: res.admin_username, admin_password: res.admin_password });
         toast.success('Tenant created');
       }
@@ -315,9 +317,15 @@ export default function TenantsPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? 'Edit Tenant' : 'Add Tenant'}</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-2"><Label>Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Address</Label><Input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Soressa" /></div>
+            {!editing && (
+              <div className="space-y-2">
+                <Label>Admin Username</Label>
+                <Input value={form.admin_username} onChange={e => setForm(f => ({ ...f, admin_username: e.target.value }))} placeholder="soressa_admin (optional — auto-generated if empty)" />
+              </div>
+            )}
+            <div className="space-y-2"><Label>Address</Label><Input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Debre Berhan" /></div>
+            <div className="space-y-2"><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+251926716804" /></div>
             <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? 'Saving...' : 'Save'}</Button>
           </div>
         </DialogContent>
