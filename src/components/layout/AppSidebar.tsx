@@ -112,7 +112,30 @@ export default function AppSidebar() {
           })}
         </nav>
 
-        <div className="p-3 border-t border-sidebar-border space-y-1">
+        <div className="p-3 border-t border-sidebar-border space-y-2">
+          {/* User info */}
+          <div className="px-3 py-2.5 rounded-lg bg-sidebar-accent/30">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-sidebar-primary/20 flex items-center justify-center text-sidebar-primary font-bold text-xs uppercase">
+                {user.uid?.slice(0, 2) || 'U'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-sidebar-foreground truncate">{user.uid?.slice(0, 8)}…</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sidebar-primary/15 text-sidebar-primary capitalize">
+                    {user.role.replace('_', ' ')}
+                  </span>
+                  {user.tid && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sidebar-accent text-sidebar-muted truncate max-w-[80px]" title={user.tid}>
+                      <Building2 className="w-2.5 h-2.5 mr-0.5" />
+                      {user.tid.slice(0, 6)}…
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <button
             onClick={() => setPwOpen(true)}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all"

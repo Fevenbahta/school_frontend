@@ -441,8 +441,8 @@ export default function StudentExamsPage() {
           >
             {availableExams.map(exam => {
               const title = unwrapString(exam.title) || exam.title;
-              const duration = exam.duration_minutes || unwrapInt(exam.duration_minutes);
-              const marks = unwrapInt(exam.total_marks) || exam.total_marks;
+              const duration = typeof exam.duration_minutes === 'object' ? unwrapInt(exam.duration_minutes) : (exam.duration_minutes ?? 0);
+              const marks = typeof exam.total_marks === 'object' ? unwrapInt(exam.total_marks) : (exam.total_marks ?? 0);
               const startT = exam.start_time;
               const endT = exam.end_time;
               const now = new Date();

@@ -178,6 +178,7 @@ export default function TeachersPage() {
             <div className="space-y-2"><Label>First Name</Label><Input value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} /></div>
             <div className="space-y-2"><Label>Last Name</Label><Input value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} /></div>
             {!editing && <div className="space-y-2"><Label>Email</Label><Input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>}
+            {!editing && <div className="space-y-2"><Label>Teacher Code</Label><Input value={form.teacher_code} onChange={e => setForm(f => ({ ...f, teacher_code: e.target.value }))} placeholder="e.g. AAUADMIN2" /></div>}
             <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? 'Saving...' : 'Save'}</Button>
           </div>
         </DialogContent>
